@@ -163,8 +163,23 @@ st.subheader("Inventory")
 cols = ["Item", "SKU", "OnHand", "MinLevel"]
 if manager_view:
     view = filtered.copy()
-    view["Status"] = view.apply(lambda r: "⚠️ Low" if r["OnHand"] <= r["MinLevel"] else "✅ OK", axis=1)
-    st.dataframe(view[cols + ["Status"]], use_container_width=True, hide_index=True)
+    view["Status"] = view.apply(
+        lambda r: "⚠️ Low" if r["OnHand"] <= r["MinLevel"] else "✅ OK",
+        axis=1
+    )
+    # Rename columns just for display
+    view = view.rename(columns={
+        "Item": "Balance Size",
+        "SKU": "Jamliner Length",
+        "OnHand": "Current Stock",
+        "MinLevel": "Reorder Level"
+    })
+    st.dataframe(
+        view[["Balance Size", "Jamliner Length", "Current Stock", "Reorder Level", "Status"]],
+        use_container_width=True,
+        hide_index=True
+    )
+
 else:
     edited = st.data_editor(
         filtered[["Item","SKU","OnHand","MinLevel"]],
