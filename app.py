@@ -167,13 +167,15 @@ if manager_view:
     st.dataframe(view[cols + ["Status"]], use_container_width=True, hide_index=True)
 else:
     edited = st.data_editor(
-        filtered[cols],
+        filtered[["Item","SKU","OnHand","MinLevel"]],
         num_rows="dynamic",
         use_container_width=True,
         key="inv_edit",
         column_config={
-            "OnHand": st.column_config.NumberColumn(format="%d"),
-            "MinLevel": st.column_config.NumberColumn(format="%d"),
+            "Item": "Product Name",
+            "SKU": "Code",
+            "OnHand": st.column_config.NumberColumn("Current Stock", format="%d"),
+            "MinLevel": st.column_config.NumberColumn("Reorder Level", format="%d"),
         },
     )
     # Merge edits by SKU if unique, else by Item
