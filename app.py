@@ -9,7 +9,7 @@ from dateutil import tz
 # Page setup
 # ----------------------------
 st.set_page_config(page_title="Inventory (Sheets)", layout="wide", page_icon="📦")
-st.title("📦 Inventory Dashboard")
+st.title("Inventory Dashboard")
 
 # ----------------------------
 # Secrets / Settings
@@ -136,7 +136,7 @@ with st.sidebar.expander("🔒 Editor unlock"):
                 st.rerun()
 
 # Filters
-with st.expander("🔎 Filters", expanded=True):
+with st.expander("Filters", expanded=True):
     show_only_low = st.checkbox("Show only low-stock items", value=False)
     q = st.text_input("Search by Item or SKU")
 
@@ -151,10 +151,9 @@ if q:
     filtered = filtered[mask]
 
 # KPIs
-k1, k2, k3 = st.columns(3)
-k1.metric("Total SKUs", len(df))
-k2.metric("Units On Hand", int(df["OnHand"].sum()))
-k3.metric("Low Stock Items", int(df["LowStock"].sum()))
+left, mid, right = st.columns([1, 1, 1])
+with mid:
+    st.metric("Low Stock Items", int(df["LowStock"].sum()))
 
 st.subheader("Inventory")
 
@@ -186,7 +185,7 @@ else:
 
     c1, c2 = st.columns([1, 1])
     with c1:
-        if st.button("💾 Save changes to Google Sheet"):
+        if st.button(" Save changes to Google Sheet"):
             try:
                 write_sheet(out_df)
                 st.success("Saved!")
@@ -195,8 +194,15 @@ else:
             except Exception as e:
                 st.error(f"Save failed: {e}")
     with c2:
-        if st.button("🔄 Reload latest from Google Sheet"):
+        if st.button(" Reload latest from Google Sheet"):
             st.cache_data.clear()
             st.rerun()
 
 st.caption("Tip: Edit counts from your phone directly in Google Sheets. The app refreshes automatically.")
+
+# git hub 
+
+# git add app.py
+# git commit -m "Show only Low Stock Items KPI"
+# git push origin main
+
