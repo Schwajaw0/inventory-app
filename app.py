@@ -347,13 +347,15 @@ if page == "Inventory":
 # ORDERS PAGE
 # =========================
 if page == "Orders":
-    st.subheader(" Orders (complete to decrement inventory)")
+    st.subheader("Orders (complete to decrement inventory)")
 
     # Filters
     with st.expander(" Order filters", expanded=True):
         show_only_open = st.checkbox("Show only NOT completed", value=True)
         q_orders = st.text_input("Search Order Name / Id / Jamliner Length")
+        simple_mode = st.toggle("Simple checkbox mode", value=True, help="Tick boxes like a to-do list. Turn off to edit rows in a table.")
 
+    # Start from full orders df
     view_orders = orders_df.copy()
     if show_only_open:
         view_orders = view_orders[~view_orders["Completed"]]
@@ -376,52 +378,120 @@ if page == "Orders":
     if "CreatedDate" in view_orders.columns:
         view_orders = view_orders.sort_values(by="CreatedDate", ascending=True, na_position="last")
 
-    st.caption("Check ✅ Completed per line. On save, inventory will decrement the mapped Balance Size once per line item.")
-    edited_orders = st.data_editor(
-        view_orders[["OrderId","OrderName","LineId","SKU","BalanceSize","UnitsPerOrder","Qty","Completed","CompletedAt","CreatedDate","Note"]],
-        use_container_width=True,
-        num_rows="dynamic",
-        key="orders_editor",
-        column_config={
-            "Completed": st.column_config.CheckboxColumn("Completed"),
-            "Qty": st.column_config.NumberColumn("Qty", format="%d"),
-            "SKU": "Jamliner Length",
-            "BalanceSize": "Balance Size (mapped)",
-            "UnitsPerOrder": st.column_config.NumberColumn("Units/Order", format="%d"),
-        },
-    )
+    # ---------- SIMPLE CHECKBOX MODE ----------
+    if simple_mode:
+        st.caption("Tick ✅ for each line you completed. Then click the button below to update inventory.")
+        # Keep only open lines in simple mode for clarity
+        open_lines = view_orders[~view_orders["Completed"]].copy()
 
-    # Merge edits back into full orders_df by LineId (to preserve hidden rows)
-    base = orders_df.set_index("LineId").copy()
-    incoming = edited_orders.set_index("LineId")[["Completed","CompletedAt","Qty","Note"]]
-    base.update(incoming)
-    merged_orders = base.reset_index()
+        if open_lines.empty:
+            st.success("No open lines. ")
+        else:
+            # Build a checkbox list
+            # Store checked states in session so re-renders don't lose choices
+            if "complete_checks" not in st.session_state:
+                st.session_state.complete_checks = {}
 
-    # Timestamp newly completed lines
-    now_str = datetime.now(timezone.utc).astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
-    before_map = orders_df.set_index("LineId")["Completed"].to_dict()
-    for idx, row in merged_orders.iterrows():
-        lid = row["LineId"]
-        prev = bool(before_map.get(lid, False))
-        cur = bool(row["Completed"])
-        if (not prev) and cur and (not str(row.get("CompletedAt","")).strip()):
-            merged_orders.at[idx, "CompletedAt"] = now_str
+            # Render checkboxes
+            for _, row in open_lines.iterrows():
+                lid = str(row["LineId"])
+                label = f"**{row['OrderName']}** ({row['OrderId']}) — Jamliner: **{row['SKU']}** × **{int(row['Qty'])}**"
+                # Show mapped balance info if available
+                if pd.notna(row.get("BalanceSize")):
+                    label += f"  →  Balance: **{row['BalanceSize']}** (Units/Order: {int(row.get('UnitsPerOrder') or 1)})"
+                st.session_state.complete_checks[lid] = st.checkbox(
+                    label,
+                    key=f"chk_{lid}",
+                    value=st.session_state.complete_checks.get(lid, False)
+                )
 
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        if st.button(" Save Orders & Update Inventory"):
-            try:
-                updated_inventory = apply_completions_update_inventory(orders_df, merged_orders, df, map_df)
-                write_inventory_sheet(updated_inventory)
-                write_orders_sheet(merged_orders)
-                st.success("Saved. Inventory updated and Orders marked completed.")
+            # Apply selected completions
+            if st.button("✅ Mark selected complete & update inventory"):
+                # Build 'after' dataframe by flipping Completed for checked line IDs
+                before_df = orders_df.copy()
+                after_df = orders_df.copy()
+                now_str = datetime.now(timezone.utc).astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+                any_checked = False
+                for lid, checked in st.session_state.complete_checks.items():
+                    if not checked:
+                        continue
+                    any_checked = True
+                    # Set Completed True and stamp CompletedAt (if not already)
+                    row_idx = after_df.index[after_df["LineId"].astype(str) == lid]
+                    if len(row_idx):
+                        idx = row_idx[0]
+                        # Only flip if it wasn't completed before
+                        if not bool(before_df.at[idx, "Completed"]):
+                            after_df.at[idx, "Completed"] = True
+                            if not str(after_df.at[idx, "CompletedAt"] or "").strip():
+                                after_df.at[idx, "CompletedAt"] = now_str
+
+                if not any_checked:
+                    st.info("Select at least one line to complete.")
+                else:
+                    try:
+                        # Update inventory using the mapped decrement logic
+                        updated_inventory = apply_completions_update_inventory(before_df, after_df, df, map_df)
+                        write_inventory_sheet(updated_inventory)
+                        write_orders_sheet(after_df)
+                        st.success("Saved. Inventory updated and selected lines marked completed.")
+                        # Reset checkboxes for next session
+                        st.session_state.complete_checks = {}
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Save failed: {e}")
+
+        st.divider()
+        st.caption("Need to edit rows (Qty/Note/etc.)? Turn off **Simple checkbox mode** to use the table editor.")
+
+    # ---------- TABLE EDIT MODE (original) ----------
+    else:
+        st.caption("Edit rows directly. Toggle Completed in the table and click save.")
+        edited_orders = st.data_editor(
+            view_orders[["OrderId","OrderName","LineId","SKU","BalanceSize","UnitsPerOrder","Qty","Completed","CompletedAt","CreatedDate","Note"]],
+            use_container_width=True,
+            num_rows="dynamic",
+            key="orders_editor",
+            column_config={
+                "Completed": st.column_config.CheckboxColumn("Completed"),
+                "Qty": st.column_config.NumberColumn("Qty", format="%d"),
+                "SKU": "Jamliner Length",
+                "BalanceSize": "Balance Size (mapped)",
+                "UnitsPerOrder": st.column_config.NumberColumn("Units/Order", format="%d"),
+            },
+        )
+
+        # Merge edits back into full orders_df by LineId (to preserve rows not in the current view)
+        base = orders_df.set_index("LineId").copy()
+        incoming = edited_orders.set_index("LineId")[["Completed","CompletedAt","Qty","Note"]]
+        base.update(incoming)
+        merged_orders = base.reset_index()
+
+        # Timestamp newly completed lines
+        now_str = datetime.now(timezone.utc).astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+        before_map = orders_df.set_index("LineId")["Completed"].to_dict()
+        for idx, row in merged_orders.iterrows():
+            lid = row["LineId"]
+            prev = bool(before_map.get(lid, False))
+            cur = bool(row["Completed"])
+            if (not prev) and cur and (not str(row.get("CompletedAt","")).strip()):
+                merged_orders.at[idx, "CompletedAt"] = now_str
+
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            if st.button(" Save Orders & Update Inventory"):
+                try:
+                    updated_inventory = apply_completions_update_inventory(orders_df, merged_orders, df, map_df)
+                    write_inventory_sheet(updated_inventory)
+                    write_orders_sheet(merged_orders)
+                    st.success("Saved. Inventory updated and Orders marked completed.")
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Save failed: {e}")
+        with c2:
+            if st.button(" Reload Orders"):
                 st.cache_data.clear()
                 st.rerun()
-            except Exception as e:
-                st.error(f"Save failed: {e}")
-    with c2:
-        if st.button(" Reload Orders"):
-            st.cache_data.clear()
-            st.rerun()
-
-st.caption("Tip: Jamliner (SKU) → Balance mapping lives in the 'Map' tab. Update UnitsPerOrder there any time.")
