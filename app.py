@@ -5,6 +5,10 @@ from gspread_dataframe import get_as_dataframe, set_with_dataframe
 from datetime import datetime, timezone
 from dateutil import tz
 
+def _full_height(n_rows: int, row_h: int = 38, header_h: int = 38, max_h: int = 2200) -> int:
+    """Return a height tall enough to show all rows without a scroll bar."""
+    return min(max_h, header_h + row_h * max(1, n_rows))
+
 # =========================
 # Page & constants
 # =========================
@@ -306,6 +310,7 @@ if page == "Inventory":
             view[["Balance Size", "Jamliner Length", "Current Stock", "Reorder Level", "Status"]],
             use_container_width=True,
             hide_index=True,
+            height=_full_height(len(view)) 
         )
     else:
         # Editor view — editable table with friendly labels
